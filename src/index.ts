@@ -16,11 +16,6 @@ app.use(router);
 
 app.use("/*", ErrorHandlerMiddleware.errorHandlerMiddleware)
 
-let PORT = process.env.APP_PORT || 9000
-async function bootstrap() {
-  await connectRedis();
-
-  app.listen(PORT, () => console.log("server started"));
-}
-
-bootstrap();
+app.listen(9000, () => {
+  console.log("The backend running on 9000 port")
+})
