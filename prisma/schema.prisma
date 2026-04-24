@@ -1,13 +1,322 @@
 generator client {
-    provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Roles {
+  ADMIN
+  SUPERADMIN
+  USER
+}
+
+enum HikCentralDeviceType {
+  ACCESS_CONTROL
+  FACE_TERMINAL
+  CAMERA
+  DOOR
+  UNKNOWN
+}
+
+enum HikCentralCredentialType {
+  FACE
+  CARD
+  FINGERPRINT
+  PIN
+  QR
+  UNKNOWN
+}
+
+enum HikCentralEventType {
+  ACCESS_GRANTED
+  ACCESS_DENIED
+  FACE_RECOGNIZED
+  FACE_NOT_RECOGNIZED
+  CHECK_IN
+  CHECK_OUT
+  UNKNOWN
+}
+
+enum AttendanceDirection {
+  CHECK_IN
+  CHECK_OUT
+}
+
+enum SyncStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+model SuperAdmin {
+  id          String   @id @default(cuid())
+  first_name  String
+  second_name String
+  username    String   @unique
+  password    String
+  role        Roles    @default(SUPERADMIN)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
 }
 
 model Admin {
-    id String @id @default(cuid())
-    
+  id          String   @id @default(cuid())
+  first_name  String
+  second_name String
+  username    String   @unique
+  password    String
+  role        Roles    @default(ADMIN)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+}
+
+model User {
+  id                     String                  @id @default(cuid())
+  id_number              String                  @unique
+  identification         String?                 @unique
+  hikcentral_person_id   String?                 @unique
+  hikcentral_employee_no String?
+  first_name             String
+  second_name            String
+  full_name              String?
+  position               String?
+  phone                  String?
+  role                   Roles                   @default(USER)
+  is_active              Boolean                 @default(true)
+  company_id             String?
+  department_id          String?
+  created_at             DateTime                @default(now())
+  updated_at             DateTime                @updatedAt
+  company                Company?                @relation(fields: [company_id], references: [id])
+  department             Department?             @relation(fields: [department_id], references: [id])
+  images                 Images[]
+  face_credentials       FaceCredential[]
+  access_credentials     AccessCredential[]
+  access_events          HikCentralAccessEvent[]
+  attendance_records     AttendanceRecord[]
+
+  @@index([company_id])
+  @@index([department_id])
+  @@index([hikcentral_employee_no])
+}
+
+model Images {
+  id                  String           @id @default(cuid())
+  url                 String
+  hikcentral_image_id String?          @unique
+  is_primary_face     Boolean          @default(false)
+  created_at          DateTime         @default(now())
+  user_id             String
+  user                User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  face_credentials    FaceCredential[]
+
+  @@index([user_id])
+}
+
+model Company {
+  id                 String             @id @default(cuid())
+  name               String             @unique
+  hikcentral_org_id  String?            @unique
+  created_at         DateTime           @default(now())
+  updated_at         DateTime           @updatedAt
+  users              User[]
+  departments        Department[]
+  attendance_imports AttendanceImport[]
+}
+
+model Department {
+  id                 String             @id @default(cuid())
+  name               String
+  path               String
+  hikcentral_org_id  String?            @unique
+  parent_id          String?
+  company_id         String
+  created_at         DateTime           @default(now())
+  updated_at         DateTime           @updatedAt
+  parent             Department?        @relation("DepartmentTree", fields: [parent_id], references: [id], onDelete: SetNull)
+  children           Department[]       @relation("DepartmentTree")
+  company            Company            @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  users              User[]
+  attendance_records AttendanceRecord[]
+
+  @@unique([company_id, path])
+  @@index([company_id])
+  @@index([parent_id])
+}
+
+model FaceCredential {
+  id                 String    @id @default(cuid())
+  hikcentral_face_id String?   @unique
+  status             String    @default("ACTIVE")
+  quality_score      Float?
+  enrolled_at        DateTime?
+  expires_at         DateTime?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+  user_id            String
+  image_id           String?
+  user               User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  image              Images?   @relation(fields: [image_id], references: [id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([image_id])
+}
+
+model AccessCredential {
+  id                       String                   @id @default(cuid())
+  type                     HikCentralCredentialType
+  value                    String
+  hikcentral_credential_id String?                  @unique
+  is_active                Boolean                  @default(true)
+  issued_at                DateTime?
+  expires_at               DateTime?
+  created_at               DateTime                 @default(now())
+  updated_at               DateTime                 @updatedAt
+  user_id                  String
+  user                     User                     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([type, value])
+  @@index([user_id])
+}
+
+model HikCentralDevice {
+  id                   String                  @id @default(cuid())
+  hikcentral_device_id String                  @unique
+  name                 String
+  type                 HikCentralDeviceType    @default(UNKNOWN)
+  serial_number        String?
+  ip_address           String?
+  location             String?
+  is_active            Boolean                 @default(true)
+  raw                  Json?
+  created_at           DateTime                @default(now())
+  updated_at           DateTime                @updatedAt
+  access_points        HikCentralAccessPoint[]
+  access_events        HikCentralAccessEvent[]
+
+  @@index([type])
+}
+
+model HikCentralAccessPoint {
+  id                  String                  @id @default(cuid())
+  hikcentral_point_id String                  @unique
+  name                String
+  door_no             String?
+  floor               String?
+  location            String?
+  device_id           String?
+  created_at          DateTime                @default(now())
+  updated_at          DateTime                @updatedAt
+  device              HikCentralDevice?       @relation(fields: [device_id], references: [id], onDelete: SetNull)
+  access_events       HikCentralAccessEvent[]
+
+  @@index([device_id])
+}
+
+model HikCentralAccessEvent {
+  id                  String                   @id @default(cuid())
+  hikcentral_event_id String?                  @unique
+  event_type          HikCentralEventType      @default(UNKNOWN)
+  credential_type     HikCentralCredentialType @default(UNKNOWN)
+  direction           AttendanceDirection?
+  event_time          DateTime
+  person_external_id  String?
+  person_name         String?
+  card_no             String?
+  temperature         Float?
+  success             Boolean?
+  message             String?
+  raw                 Json?
+  received_at         DateTime                 @default(now())
+  user_id             String?
+  device_id           String?
+  access_point_id     String?
+  user                User?                    @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  device              HikCentralDevice?        @relation(fields: [device_id], references: [id], onDelete: SetNull)
+  access_point        HikCentralAccessPoint?   @relation(fields: [access_point_id], references: [id], onDelete: SetNull)
+
+  @@index([event_time])
+  @@index([user_id, event_time])
+  @@index([person_external_id])
+  @@index([device_id])
+  @@index([access_point_id])
+}
+
+model AttendanceImport {
+  id           String             @id @default(cuid())
+  file_name    String
+  report_name  String?
+  operator     String?
+  exported_at  DateTime?
+  period_start DateTime?
+  period_end   DateTime?
+  source       String             @default("HIKCENTRAL_EXCEL")
+  status       SyncStatus         @default(SUCCESS)
+  raw          Json?
+  created_at   DateTime           @default(now())
+  company_id   String?
+  company      Company?           @relation(fields: [company_id], references: [id], onDelete: SetNull)
+  records      AttendanceRecord[]
+
+  @@index([company_id])
+  @@index([period_start, period_end])
+}
+
+model AttendanceRecord {
+  id                      String            @id @default(cuid())
+  person_code             String?
+  identifier              String?
+  first_name              String?
+  second_name             String?
+  full_name               String?
+  department_path         String?
+  time_group              String?
+  position                String?
+  work_date               DateTime
+  week_day                String?
+  period_name             String?
+  required_check_in_date  DateTime?
+  required_check_in_time  String?
+  required_check_out_date DateTime?
+  required_check_out_time String?
+  check_in_at             DateTime?
+  check_out_at            DateTime?
+  check_in_time           String?
+  check_out_time          String?
+  duration_minutes        Int?
+  total_duration_minutes  Int?
+  raw                     Json?
+  created_at              DateTime          @default(now())
+  updated_at              DateTime          @updatedAt
+  user_id                 String?
+  department_id           String?
+  import_id               String?
+  user                    User?             @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  department              Department?       @relation(fields: [department_id], references: [id], onDelete: SetNull)
+  import                  AttendanceImport? @relation(fields: [import_id], references: [id], onDelete: Cascade)
+
+  @@unique([identifier, work_date, period_name])
+  @@index([user_id, work_date])
+  @@index([department_id, work_date])
+  @@index([import_id])
+  @@index([work_date])
+}
+
+model HikCentralSyncJob {
+  id            String     @id @default(cuid())
+  job_type      String
+  status        SyncStatus @default(PENDING)
+  started_at    DateTime?
+  finished_at   DateTime?
+  last_cursor   String?
+  error_message String?
+  raw           Json?
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @updatedAt
+
+  @@index([job_type, status])
 }
