@@ -36,6 +36,47 @@ import {
     weekDayName,
 } from "./shared";
 export class SecurityController {
+    static async seedDefaultPermissions(_req: Request, res: Response) {
+        const modules = [
+            "dashboard",
+            "metadata",
+            "organization",
+            "people",
+            "devices",
+            "access-control",
+            "attendance",
+            "licenses",
+            "tracking",
+            "sync",
+            "security",
+        ];
+        const actions = [
+            PermissionAction.CREATE,
+            PermissionAction.READ,
+            PermissionAction.UPDATE,
+            PermissionAction.DELETE,
+            PermissionAction.MANAGE,
+        ];
+
+        const permissions = await prisma.$transaction(
+            modules.flatMap((module) =>
+                actions.map((action) =>
+                    prisma.permission.upsert({
+                        where: { module_action: { module, action } },
+                        create: {
+                            module,
+                            action,
+                            description: `${action.toLowerCase()} access for ${module}`,
+                        },
+                        update: {},
+                    })
+                )
+            )
+        );
+
+        res.status(201).json({ success: true, data: { created_or_existing: permissions.length, permissions } });
+    }
+
     static async createPermission(req: Request, res: Response) {
         const permission = await prisma.permission.upsert({
             where: {

@@ -1,4 +1,6 @@
 import { NextFunction, Request, Response } from "express";
+import { PermissionAction, Roles } from "@prisma/client";
+import { prisma } from "@config";
 import { verify } from "jsonwebtoken";
 import dotenv from "dotenv";
 dotenv.config();
@@ -52,6 +54,18 @@ function verifyAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 };
 
+function verifySuperAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  if (req.user.role !== Roles.SUPERADMIN) {
+    return res.status(403).json({ message: "Super admin access required" });
+  }
+
+  next();
+};
+
 function verifyUser(req: Request, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ message: "Unauthorized" });
@@ -64,8 +78,71 @@ function verifyUser(req: Request, res: Response, next: NextFunction) {
   next();
 };
 
+function requireRoles(...roles: Roles[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (!roles.includes(req.user.role as Roles)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    next();
+  };
+}
+
+function requirePermission(module: string, action: PermissionAction) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      if (req.user.role === Roles.SUPERADMIN) {
+        return next();
+      }
+
+      if (req.user.role !== Roles.ADMIN) {
+        return res.status(403).json({ message: "Admin permission required" });
+      }
+
+      const now = new Date();
+      const assignment = await prisma.adminRoleAssignment.findFirst({
+        where: {
+          admin_id: req.user.id,
+          role: {
+            status: "ACTIVE",
+            OR: [{ effective_from: null }, { effective_from: { lte: now } }],
+            AND: [{ OR: [{ effective_to: null }, { effective_to: { gte: now } }] }],
+            permissions: {
+              some: {
+                permission: {
+                  module,
+                  action: { in: [action, PermissionAction.MANAGE] },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!assignment) {
+        return res.status(403).json({ message: `Missing ${action} permission for ${module}` });
+      }
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
 export {
     verifyToken,
     verifyUser,
-    verifyAdmin
+    verifyAdmin,
+    verifySuperAdmin,
+    requireRoles,
+    requirePermission
 }

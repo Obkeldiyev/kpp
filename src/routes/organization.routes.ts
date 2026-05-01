@@ -1,23 +1,26 @@
 import { Router } from "express";
 import { OrganizationController } from "@controllers/organization.controller";
+import { PermissionAction } from "@prisma/client";
+import { requirePermission, verifyToken } from "@middlewares";
 import { asyncHandler } from "@utils";
 
 const router = Router();
+const access = (action: PermissionAction) => [verifyToken, requirePermission("organization", action)];
 
-router.post("/companies", asyncHandler(OrganizationController.createCompany));
-router.get("/companies", asyncHandler(OrganizationController.listCompanies));
-router.get("/companies/:id", asyncHandler(OrganizationController.getCompany));
-router.patch("/companies/:id", asyncHandler(OrganizationController.updateCompany));
-router.delete("/companies/:id", asyncHandler(OrganizationController.deleteCompany));
-router.post("/departments", asyncHandler(OrganizationController.createDepartment));
-router.get("/departments", asyncHandler(OrganizationController.listDepartments));
-router.get("/departments/:id", asyncHandler(OrganizationController.getDepartment));
-router.patch("/departments/:id", asyncHandler(OrganizationController.updateDepartment));
-router.delete("/departments/:id", asyncHandler(OrganizationController.deleteDepartment));
-router.post("/areas", asyncHandler(OrganizationController.createArea));
-router.get("/areas", asyncHandler(OrganizationController.listAreas));
-router.get("/areas/:id", asyncHandler(OrganizationController.getArea));
-router.patch("/areas/:id", asyncHandler(OrganizationController.updateArea));
-router.delete("/areas/:id", asyncHandler(OrganizationController.deleteArea));
+router.post("/companies", ...access(PermissionAction.CREATE), asyncHandler(OrganizationController.createCompany));
+router.get("/companies", ...access(PermissionAction.READ), asyncHandler(OrganizationController.listCompanies));
+router.get("/companies/:id", ...access(PermissionAction.READ), asyncHandler(OrganizationController.getCompany));
+router.patch("/companies/:id", ...access(PermissionAction.UPDATE), asyncHandler(OrganizationController.updateCompany));
+router.delete("/companies/:id", ...access(PermissionAction.DELETE), asyncHandler(OrganizationController.deleteCompany));
+router.post("/departments", ...access(PermissionAction.CREATE), asyncHandler(OrganizationController.createDepartment));
+router.get("/departments", ...access(PermissionAction.READ), asyncHandler(OrganizationController.listDepartments));
+router.get("/departments/:id", ...access(PermissionAction.READ), asyncHandler(OrganizationController.getDepartment));
+router.patch("/departments/:id", ...access(PermissionAction.UPDATE), asyncHandler(OrganizationController.updateDepartment));
+router.delete("/departments/:id", ...access(PermissionAction.DELETE), asyncHandler(OrganizationController.deleteDepartment));
+router.post("/areas", ...access(PermissionAction.CREATE), asyncHandler(OrganizationController.createArea));
+router.get("/areas", ...access(PermissionAction.READ), asyncHandler(OrganizationController.listAreas));
+router.get("/areas/:id", ...access(PermissionAction.READ), asyncHandler(OrganizationController.getArea));
+router.patch("/areas/:id", ...access(PermissionAction.UPDATE), asyncHandler(OrganizationController.updateArea));
+router.delete("/areas/:id", ...access(PermissionAction.DELETE), asyncHandler(OrganizationController.deleteArea));
 
 export default router;
