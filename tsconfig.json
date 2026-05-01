@@ -15,6 +15,9 @@
       "@controllers": [
         "./src/controllers"
       ],
+      "@controllers/*": [
+        "./src/controllers/*"
+      ],
       "@errors": [
         "./src/errors"
       ],

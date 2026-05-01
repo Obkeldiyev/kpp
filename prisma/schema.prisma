@@ -121,6 +121,52 @@ enum ApprovalStatus {
   CANCELLED
 }
 
+enum HikCentralLicenseStatus {
+  ACTIVE
+  TRIAL
+  EXPIRED
+  SUSPENDED
+  DISABLED
+}
+
+enum HikCentralLicenseFeatureCode {
+  VIDEO
+  ACCESS_CONTROL
+  ATTENDANCE
+  FACE_RECOGNITION
+  VISITOR
+  ALARM
+  MOBILE
+  API
+  STORAGE
+  UNKNOWN
+}
+
+enum HikCentralTrackingSubjectType {
+  PERSON
+  VEHICLE
+  ASSET
+  DEVICE
+  UNKNOWN
+}
+
+enum HikCentralTrackingStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum HikCentralTrackingEventType {
+  ACCESS_EVENT
+  CAMERA_DETECTION
+  FACE_MATCH
+  MANUAL
+  ALARM
+  LOCATION_UPDATE
+  UNKNOWN
+}
+
 model SuperAdmin {
   id          String   @id @default(cuid())
   first_name  String
@@ -209,6 +255,9 @@ model Company {
   users              User[]
   attendance_imports AttendanceImport[]
   access_levels      AccessLevel[]
+  licenses           HikCentralLicense[]
+  license_usage      HikCentralLicenseUsageSnapshot[]
+  tracking_sessions  HikCentralTrackingSession[]
 }
 
 model Department {
@@ -277,6 +326,8 @@ model Device {
   pictures             DevicePicture[]
   access_points        HikCentralAccessPoint[]
   access_events        HikCentralAccessEvent[]
+  license_allocations  HikCentralLicenseAllocation[]
+  tracking_points      HikCentralTrackingPoint[]
 
   @@index([area_id])
   @@index([type])
@@ -322,6 +373,8 @@ model User {
   approval_requests      AttendanceApprovalRequest[]
   access_events          HikCentralAccessEvent[]
   attendance_records     AttendanceRecord[]
+  tracking_sessions      HikCentralTrackingSession[]
+  tracking_points        HikCentralTrackingPoint[]
 
   @@index([company_id])
   @@index([department_id])
@@ -660,6 +713,7 @@ model HikCentralAccessEvent {
   user                     User?                    @relation(fields: [user_id], references: [id], onDelete: SetNull)
   device                   Device?                  @relation(fields: [device_id], references: [id], onDelete: SetNull)
   access_point             HikCentralAccessPoint?   @relation(fields: [access_point_id], references: [id], onDelete: SetNull)
+  tracking_points          HikCentralTrackingPoint[]
 
   @@index([event_time])
   @@index([user_id, event_time])
@@ -746,6 +800,147 @@ model AttendanceApprovalRequest {
   @@index([user_id])
   @@index([type, status])
   @@index([requested_at])
+}
+
+model HikCentralLicense {
+  id                    String                         @id @default(cuid())
+  name                  String
+  license_key           String                         @unique
+  hikcentral_license_id String?                        @unique
+  status                HikCentralLicenseStatus        @default(ACTIVE)
+  seats                 Int?
+  max_devices           Int?
+  max_doors             Int?
+  max_cameras           Int?
+  max_faces             Int?
+  max_users             Int?
+  issued_at             DateTime?
+  activated_at          DateTime?
+  expires_at            DateTime?
+  vendor                String?
+  raw                   Json?
+  company_id            String?
+  created_at            DateTime                       @default(now())
+  updated_at            DateTime                       @updatedAt
+  company               Company?                       @relation(fields: [company_id], references: [id], onDelete: SetNull)
+  features              HikCentralLicenseFeature[]
+  allocations           HikCentralLicenseAllocation[]
+  usage_snapshots       HikCentralLicenseUsageSnapshot[]
+
+  @@index([company_id])
+  @@index([status])
+  @@index([expires_at])
+}
+
+model HikCentralLicenseFeature {
+  id          String                       @id @default(cuid())
+  license_id  String
+  code        HikCentralLicenseFeatureCode @default(UNKNOWN)
+  name        String
+  quota       Int?
+  used        Int                          @default(0)
+  enabled     Boolean                      @default(true)
+  expires_at  DateTime?
+  metadata    Json?
+  created_at  DateTime                     @default(now())
+  updated_at  DateTime                     @updatedAt
+  license     HikCentralLicense            @relation(fields: [license_id], references: [id], onDelete: Cascade)
+
+  @@unique([license_id, code])
+  @@index([code])
+  @@index([enabled])
+}
+
+model HikCentralLicenseAllocation {
+  id          String            @id @default(cuid())
+  license_id  String
+  device_id   String
+  feature     HikCentralLicenseFeatureCode @default(UNKNOWN)
+  allocated_at DateTime          @default(now())
+  released_at DateTime?
+  license     HikCentralLicense @relation(fields: [license_id], references: [id], onDelete: Cascade)
+  device      Device            @relation(fields: [device_id], references: [id], onDelete: Cascade)
+
+  @@unique([license_id, device_id, feature])
+  @@index([device_id])
+  @@index([feature])
+}
+
+model HikCentralLicenseUsageSnapshot {
+  id                 String              @id @default(cuid())
+  license_id         String?
+  company_id         String?
+  captured_at        DateTime            @default(now())
+  active_users       Int                 @default(0)
+  active_devices     Int                 @default(0)
+  active_cameras     Int                 @default(0)
+  active_doors       Int                 @default(0)
+  active_faces       Int                 @default(0)
+  access_events      Int                 @default(0)
+  attendance_records Int                 @default(0)
+  raw                Json?
+  license            HikCentralLicense?  @relation(fields: [license_id], references: [id], onDelete: SetNull)
+  company            Company?            @relation(fields: [company_id], references: [id], onDelete: SetNull)
+
+  @@index([license_id])
+  @@index([company_id])
+  @@index([captured_at])
+}
+
+model HikCentralTrackingSession {
+  id                   String                         @id @default(cuid())
+  name                 String
+  subject_type         HikCentralTrackingSubjectType  @default(PERSON)
+  status               HikCentralTrackingStatus       @default(ACTIVE)
+  hikcentral_track_id  String?                        @unique
+  subject_external_id  String?
+  subject_name         String?
+  starts_at            DateTime                       @default(now())
+  ends_at              DateTime?
+  last_seen_at         DateTime?
+  note                 String?
+  raw                  Json?
+  company_id           String?
+  user_id              String?
+  created_at           DateTime                       @default(now())
+  updated_at           DateTime                       @updatedAt
+  company              Company?                       @relation(fields: [company_id], references: [id], onDelete: SetNull)
+  user                 User?                          @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  points               HikCentralTrackingPoint[]
+
+  @@index([company_id])
+  @@index([user_id])
+  @@index([status])
+  @@index([subject_external_id])
+  @@index([starts_at, ends_at])
+}
+
+model HikCentralTrackingPoint {
+  id                 String                        @id @default(cuid())
+  session_id         String
+  event_type         HikCentralTrackingEventType   @default(UNKNOWN)
+  occurred_at        DateTime                      @default(now())
+  latitude           Float?
+  longitude          Float?
+  area_name          String?
+  location           String?
+  confidence         Float?
+  snapshot_url       String?
+  message            String?
+  raw                Json?
+  user_id            String?
+  device_id          String?
+  access_event_id    String?
+  session            HikCentralTrackingSession     @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  user               User?                         @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  device             Device?                       @relation(fields: [device_id], references: [id], onDelete: SetNull)
+  access_event       HikCentralAccessEvent?        @relation(fields: [access_event_id], references: [id], onDelete: SetNull)
+
+  @@index([session_id, occurred_at])
+  @@index([user_id])
+  @@index([device_id])
+  @@index([access_event_id])
+  @@index([event_type])
 }
 
 model HikCentralSyncJob {
