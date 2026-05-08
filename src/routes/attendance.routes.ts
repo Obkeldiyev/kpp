@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { AttendanceController } from "@controllers/attendance.controller";
 import { PermissionAction } from "@prisma/client";
-import { requirePermission, verifyToken } from "@middlewares";
+import { requirePermission, verifyBridgeToken, verifyToken } from "@middlewares";
 import { asyncHandler } from "@utils";
 
 const router = Router();
@@ -25,6 +25,7 @@ router.get("/rules", ...access(PermissionAction.READ), asyncHandler(AttendanceCo
 router.patch("/rules/:id", ...access(PermissionAction.UPDATE), asyncHandler(AttendanceController.updateRule));
 router.delete("/rules/:id", ...access(PermissionAction.DELETE), asyncHandler(AttendanceController.deleteRule));
 router.post("/events", ...access(PermissionAction.CREATE), asyncHandler(AttendanceController.ingestEvent));
+router.post("/bridge/events", verifyBridgeToken, asyncHandler(AttendanceController.ingestEvent));
 router.get("/transactions", ...access(PermissionAction.READ), asyncHandler(AttendanceController.listTransactions));
 router.post("/records", ...access(PermissionAction.CREATE), asyncHandler(AttendanceController.createManualRecord));
 router.get("/records", ...access(PermissionAction.READ), asyncHandler(AttendanceController.listRecords));

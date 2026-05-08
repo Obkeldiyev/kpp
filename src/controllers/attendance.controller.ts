@@ -298,6 +298,13 @@ export class AttendanceController {
             : req.body.hikcentral_point_id
               ? await prisma.hikCentralAccessPoint.findUnique({ where: { hikcentral_point_id: req.body.hikcentral_point_id } })
               : null;
+        const device = req.body.device_id
+            ? await prisma.device.findUnique({ where: { id: req.body.device_id } })
+            : req.body.hikcentral_device_id
+              ? await prisma.device.findUnique({ where: { hikcentral_device_id: req.body.hikcentral_device_id } })
+              : req.body.device_ip
+                ? await prisma.device.findFirst({ where: { ip_address: req.body.device_ip } })
+                : null;
         const areaMode = await resolveAttendanceAreaMode(accessPoint?.id, person?.department_id);
         const direction =
             req.body.direction && req.body.direction !== "AUTO"
@@ -323,7 +330,7 @@ export class AttendanceController {
             message: asString(req.body.message),
             raw: req.body,
             user_id: person?.id,
-            device_id: asString(req.body.device_id),
+            device_id: device?.id,
             access_point_id: accessPoint?.id,
         };
 

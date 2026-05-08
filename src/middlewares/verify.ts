@@ -54,6 +54,25 @@ function verifyAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 };
 
+function verifyBridgeToken(req: Request, res: Response, next: NextFunction) {
+  const configuredToken = process.env.HIKVISION_BRIDGE_TOKEN || process.env.HIKCENTRAL_BRIDGE_TOKEN;
+
+  if (!configuredToken) {
+    return res.status(503).json({ message: "Bridge token is not configured" });
+  }
+
+  const headerToken = req.headers["x-bridge-token"];
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
+  const token = Array.isArray(headerToken) ? headerToken[0] : headerToken || bearerToken;
+
+  if (!token || token !== configuredToken) {
+    return res.status(401).json({ message: "Invalid bridge token" });
+  }
+
+  next();
+};
+
 function verifySuperAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ message: "Unauthorized" });
@@ -140,6 +159,7 @@ function requirePermission(module: string, action: PermissionAction) {
 
 export {
     verifyToken,
+    verifyBridgeToken,
     verifyUser,
     verifyAdmin,
     verifySuperAdmin,

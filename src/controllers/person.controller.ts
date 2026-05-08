@@ -36,6 +36,77 @@ import {
     weekDayName,
 } from "./shared";
 export class PersonController {
+    static async upsertFromBridge(req: Request, res: Response) {
+        const personId = asString(req.body.person_id || req.body.id_number || req.body.employee_no);
+        if (!personId) {
+            res.status(400).json({ success: false, message: "person_id is required" });
+            return;
+        }
+
+        const fullName = asString(req.body.full_name || req.body.name) || personId;
+        const [firstName, ...rest] = fullName.split(" ");
+        const secondName = rest.join(" ") || "-";
+        const imageUrl = asString(req.body.image_url || req.body.photo_url);
+
+        const person = await prisma.user.upsert({
+            where: { id_number: personId },
+            create: {
+                id_number: personId,
+                identification: asString(req.body.identification),
+                hikcentral_person_id: asString(req.body.hikcentral_person_id || personId),
+                hikcentral_employee_no: asString(req.body.hikcentral_employee_no || req.body.employee_no || personId),
+                first_name: asString(req.body.first_name) || firstName,
+                second_name: asString(req.body.second_name) || secondName,
+                full_name: fullName,
+                position: asString(req.body.position),
+                phone: asString(req.body.phone),
+                role: Roles.USER,
+                company_id: asString(req.body.company_id),
+                department_id: asString(req.body.department_id),
+                images: imageUrl
+                    ? {
+                          create: {
+                              url: imageUrl,
+                              hikcentral_image_id: asString(req.body.hikcentral_image_id),
+                              is_primary_face: true,
+                          },
+                      }
+                    : undefined,
+                face_credentials: {
+                    create: {
+                        hikcentral_face_id: asString(req.body.hikcentral_face_id),
+                        status: asString(req.body.face_status) || "ACTIVE",
+                        enrolled_at: toDate(req.body.enrolled_at) || new Date(),
+                    },
+                },
+            },
+            update: {
+                identification: asString(req.body.identification),
+                hikcentral_person_id: asString(req.body.hikcentral_person_id || personId),
+                hikcentral_employee_no: asString(req.body.hikcentral_employee_no || req.body.employee_no || personId),
+                first_name: asString(req.body.first_name) || firstName,
+                second_name: asString(req.body.second_name) || secondName,
+                full_name: fullName,
+                position: asString(req.body.position),
+                phone: asString(req.body.phone),
+                company_id: asString(req.body.company_id),
+                department_id: asString(req.body.department_id),
+                images: imageUrl
+                    ? {
+                          create: {
+                              url: imageUrl,
+                              hikcentral_image_id: asString(req.body.hikcentral_image_id),
+                              is_primary_face: true,
+                          },
+                      }
+                    : undefined,
+            },
+            include: includePerson,
+        });
+
+        res.status(201).json({ success: true, data: person });
+    }
+
     static async create(req: Request, res: Response) {
         const fullName = req.body.full_name || `${req.body.first_name} ${req.body.second_name}`.trim();
         const person = await prisma.user.create({
