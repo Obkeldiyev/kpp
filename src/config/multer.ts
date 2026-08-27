@@ -47,3 +47,8 @@ export const uploadNewsMedia = multer({
     files: 10, // max 10 files
   },
 });
+
+export const uploadBridgeFace = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});

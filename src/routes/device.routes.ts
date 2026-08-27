@@ -8,6 +8,7 @@ const router = Router();
 const access = (action: PermissionAction) => [verifyToken, requirePermission("devices", action)];
 
 router.post("/devices", ...access(PermissionAction.CREATE), asyncHandler(DeviceController.upsertDevice));
+router.post("/devices/:id/connect", ...access(PermissionAction.UPDATE), asyncHandler(DeviceController.connectDevice));
 router.get("/devices", ...access(PermissionAction.READ), asyncHandler(DeviceController.listDevices));
 router.get("/devices/overview", ...access(PermissionAction.READ), asyncHandler(DeviceController.overview));
 router.post("/devices/import", ...access(PermissionAction.MANAGE), asyncHandler(DeviceController.bulkImportDevices));

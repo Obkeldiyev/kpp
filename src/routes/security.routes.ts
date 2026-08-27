@@ -12,5 +12,7 @@ router.post("/permissions", ...manageSecurity, asyncHandler(SecurityController.c
 router.post("/roles", ...manageSecurity, asyncHandler(SecurityController.createRole));
 router.get("/roles", verifyToken, requirePermission("security", PermissionAction.READ), asyncHandler(SecurityController.listRoles));
 router.post("/role-assignments", ...manageSecurity, asyncHandler(SecurityController.assignRole));
+router.get("/admins", verifyToken, requirePermission("security", PermissionAction.READ), asyncHandler(SecurityController.listAdmins));
+router.post("/admins", ...manageSecurity, asyncHandler(SecurityController.createAdmin));
 
 export default router;

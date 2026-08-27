@@ -290,7 +290,25 @@ export class AttendanceController {
 
     static async ingestEvent(req: Request, res: Response) {
         const eventTime = toDate(req.body.event_time) || new Date();
-        const eventType = enumValue(HikCentralEventType, req.body.event_type, HikCentralEventType.UNKNOWN);
+        const rawEventType = asString(req.body.event_type || req.body.eventType || req.body.major_event_type);
+        const rawCredentialType = asString(req.body.credential_type || req.body.credentialType || req.body.credential);
+        const verificationMode = asString(req.body.verification_mode || req.body.verify_mode || req.body.method);
+        const faceLike = [rawEventType, rawCredentialType, verificationMode]
+            .filter(Boolean)
+            .some((value) => value!.toLowerCase().includes("face"));
+        const success = req.body.success === undefined ? undefined : asBoolean(req.body.success);
+        const eventType = rawEventType
+            ? enumValue(HikCentralEventType, rawEventType, HikCentralEventType.UNKNOWN)
+            : faceLike
+              ? success === false
+                  ? HikCentralEventType.FACE_NOT_RECOGNIZED
+                  : HikCentralEventType.FACE_RECOGNIZED
+              : HikCentralEventType.UNKNOWN;
+        const credentialType = rawCredentialType
+            ? enumValue(HikCentralCredentialType, rawCredentialType, HikCentralCredentialType.UNKNOWN)
+            : faceLike
+              ? HikCentralCredentialType.FACE
+              : HikCentralCredentialType.UNKNOWN;
         const personExternalId = asString(req.body.person_external_id || req.body.person_id || req.body.employee_no);
         const person = await resolvePerson(personExternalId, asString(req.body.user_id));
         const accessPoint = req.body.access_point_id
@@ -303,7 +321,15 @@ export class AttendanceController {
             : req.body.hikcentral_device_id
               ? await prisma.device.findUnique({ where: { hikcentral_device_id: req.body.hikcentral_device_id } })
               : req.body.device_ip
-                ? await prisma.device.findFirst({ where: { ip_address: req.body.device_ip } })
+                ? await prisma.device.findFirst({
+                      where: {
+                          OR: [
+                              { ip_address: req.body.device_ip },
+                              { device_address: { contains: req.body.device_ip } },
+                              { channel_address: { contains: req.body.device_ip } },
+                          ],
+                      },
+                  })
                 : null;
         const areaMode = await resolveAttendanceAreaMode(accessPoint?.id, person?.department_id);
         const direction =
@@ -314,7 +340,7 @@ export class AttendanceController {
         const eventData = {
             hikcentral_event_id: asString(req.body.hikcentral_event_id),
             event_type: eventType,
-            credential_type: enumValue(HikCentralCredentialType, req.body.credential_type, HikCentralCredentialType.UNKNOWN),
+            credential_type: credentialType,
             direction: direction || undefined,
             event_time: eventTime,
             person_external_id: personExternalId,
@@ -324,9 +350,9 @@ export class AttendanceController {
             skin_surface_temperature: asString(req.body.skin_surface_temperature),
             temperature_status: asString(req.body.temperature_status),
             card_swiping_type: asString(req.body.card_swiping_type),
-            verification_mode: asString(req.body.verification_mode || req.body.verify_mode),
+            verification_mode: verificationMode,
             attendance_group: asString(req.body.attendance_group),
-            success: req.body.success === undefined ? undefined : asBoolean(req.body.success),
+            success,
             message: asString(req.body.message),
             raw: req.body,
             user_id: person?.id,

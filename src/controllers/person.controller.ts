@@ -22,6 +22,7 @@ import {
 } from "@prisma/client";
 import { Request, Response } from "express";
 import { prisma } from "@config";
+import { enrollFaceOnBridge } from "../services/bridge.service";
 import { combineDateAndTime, endOfDay, minutesBetween, paginate, startOfDay, toDate } from "@utils";
 import {
     asBoolean,
@@ -36,6 +37,48 @@ import {
     weekDayName,
 } from "./shared";
 export class PersonController {
+    static async enrollOnDevices(req: Request, res: Response) {
+        const file = req.file;
+        const personId = asString(req.body.id_number);
+        const deviceIds = String(req.body.device_ids || "").split(",").map((id) => id.trim()).filter(Boolean);
+        if (!file || !personId || deviceIds.length === 0) {
+            res.status(400).json({ success: false, message: "Person ID, face image, and at least one device are required" });
+            return;
+        }
+
+        const devices = await prisma.device.findMany({ where: { id: { in: deviceIds } } });
+        if (devices.length !== deviceIds.length) {
+            res.status(400).json({ success: false, message: "One or more selected devices were not found" });
+            return;
+        }
+
+        const fullName = asString(req.body.full_name) || `${req.body.first_name || ""} ${req.body.second_name || ""}`.trim() || personId;
+        const [firstName, ...rest] = fullName.split(" ");
+        const person = await prisma.user.upsert({
+            where: { id_number: personId },
+            create: { id_number: personId, first_name: firstName, second_name: rest.join(" ") || "-", full_name: fullName, role: Roles.USER },
+            update: { first_name: firstName, second_name: rest.join(" ") || "-", full_name: fullName },
+        });
+
+        const results = [];
+        for (const device of devices) {
+            if (!device.ip_address || !device.sdk_username || !device.sdk_password) {
+                results.push({ device_id: device.id, ok: false, error: "Device credentials are incomplete" });
+                continue;
+            }
+            try {
+                const result = await enrollFaceOnBridge(device, personId, file);
+                results.push({ device_id: device.id, name: device.name, ok: Boolean(result?.ok), result });
+            } catch (error: any) {
+                results.push({ device_id: device.id, name: device.name, ok: false, error: error?.response?.data?.detail || error.message });
+            }
+        }
+
+        const successful = results.filter((result) => result.ok).length;
+        await prisma.faceCredential.create({ data: { user_id: person.id, status: successful ? "ACTIVE" : "FAILED", enrolled_at: successful ? new Date() : null } });
+        res.status(successful ? 201 : 502).json({ success: successful > 0, data: { person, results, enrolled: successful, total: results.length } });
+    }
+
     static async upsertFromBridge(req: Request, res: Response) {
         const personId = asString(req.body.person_id || req.body.id_number || req.body.employee_no);
         if (!personId) {
@@ -72,13 +115,15 @@ export class PersonController {
                           },
                       }
                     : undefined,
-                face_credentials: {
-                    create: {
-                        hikcentral_face_id: asString(req.body.hikcentral_face_id),
-                        status: asString(req.body.face_status) || "ACTIVE",
-                        enrolled_at: toDate(req.body.enrolled_at) || new Date(),
-                    },
-                },
+                face_credentials: asString(req.body.hikcentral_face_id)
+                    ? {
+                          create: {
+                              hikcentral_face_id: asString(req.body.hikcentral_face_id),
+                              status: asString(req.body.face_status) || "ACTIVE",
+                              enrolled_at: toDate(req.body.enrolled_at) || new Date(),
+                          },
+                      }
+                    : undefined,
             },
             update: {
                 identification: asString(req.body.identification),
@@ -104,7 +149,41 @@ export class PersonController {
             include: includePerson,
         });
 
-        res.status(201).json({ success: true, data: person });
+        const faceId = asString(req.body.hikcentral_face_id);
+        const faceStatus = asString(req.body.face_status) || "ACTIVE";
+        const savedImage = imageUrl
+            ? await prisma.images.findFirst({
+                  where: { user_id: person.id, url: imageUrl },
+                  orderBy: { created_at: "desc" },
+              })
+            : null;
+
+        if (faceId || imageUrl) {
+            const existingFace = faceId
+                ? await prisma.faceCredential.findUnique({ where: { hikcentral_face_id: faceId } })
+                : await prisma.faceCredential.findFirst({ where: { user_id: person.id, image_id: savedImage?.id } });
+
+            if (existingFace) {
+                await prisma.faceCredential.update({
+                    where: { id: existingFace.id },
+                    data: { status: faceStatus, image_id: savedImage?.id || existingFace.image_id, enrolled_at: new Date() },
+                });
+            } else {
+                await prisma.faceCredential.create({
+                    data: {
+                        user_id: person.id,
+                        hikcentral_face_id: faceId,
+                        status: faceStatus,
+                        image_id: savedImage?.id,
+                        enrolled_at: new Date(),
+                    },
+                });
+            }
+        }
+
+        const refreshed = await prisma.user.findUnique({ where: { id: person.id }, include: includePerson });
+
+        res.status(201).json({ success: true, data: refreshed });
     }
 
     static async create(req: Request, res: Response) {
@@ -129,6 +208,25 @@ export class PersonController {
                               url: req.body.image_url,
                               hikcentral_image_id: asString(req.body.hikcentral_image_id),
                               is_primary_face: true,
+                          },
+                      }
+                    : undefined,
+                face_credentials: asString(req.body.hikcentral_face_id)
+                    ? {
+                          create: {
+                              hikcentral_face_id: asString(req.body.hikcentral_face_id),
+                              status: asString(req.body.face_status) || "ACTIVE",
+                              enrolled_at: toDate(req.body.enrolled_at) || new Date(),
+                          },
+                      }
+                    : undefined,
+                access_credentials: asString(req.body.card_no)
+                    ? {
+                          create: {
+                              type: HikCentralCredentialType.CARD,
+                              value: asString(req.body.card_no)!,
+                              hikcentral_credential_id: asString(req.body.hikcentral_credential_id),
+                              is_active: true,
                           },
                       }
                     : undefined,
@@ -253,6 +351,45 @@ export class PersonController {
     static async deleteCredential(req: Request, res: Response) {
         await prisma.accessCredential.delete({ where: { id: req.params.credentialId } });
         res.json({ success: true, data: { id: req.params.credentialId } });
+    }
+
+    static async addFace(req: Request, res: Response) {
+        const imageUrl = asString(req.body.image_url || req.body.photo_url);
+        const image = imageUrl
+            ? await prisma.images.create({
+                  data: {
+                      user_id: req.params.id,
+                      url: imageUrl,
+                      hikcentral_image_id: asString(req.body.hikcentral_image_id),
+                      is_primary_face: req.body.is_primary_face === undefined ? true : asBoolean(req.body.is_primary_face, true),
+                  },
+              })
+            : null;
+
+        const face = await prisma.faceCredential.create({
+            data: {
+                user_id: req.params.id,
+                image_id: image?.id,
+                hikcentral_face_id: asString(req.body.hikcentral_face_id),
+                status: asString(req.body.status || req.body.face_status) || "ACTIVE",
+                quality_score: req.body.quality_score === undefined ? undefined : Number(req.body.quality_score),
+                enrolled_at: toDate(req.body.enrolled_at) || new Date(),
+                expires_at: toDate(req.body.expires_at),
+            },
+            include: { image: true },
+        });
+
+        res.status(201).json({ success: true, data: face });
+    }
+
+    static async listFaces(req: Request, res: Response) {
+        const faces = await prisma.faceCredential.findMany({
+            where: { user_id: req.params.id },
+            include: { image: true },
+            orderBy: { created_at: "desc" },
+        });
+
+        res.json({ success: true, data: faces });
     }
 
     static async credentialStatus(req: Request, res: Response) {

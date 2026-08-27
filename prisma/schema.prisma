@@ -316,6 +316,9 @@ model Device {
   marking_status       String                  @default("unmarked")
   serial_number        String?
   ip_address           String?
+  sdk_port             Int                      @default(8000)
+  sdk_username         String?
+  sdk_password         String?
   location             String?
   is_active            Boolean                 @default(true)
   raw                  Json?

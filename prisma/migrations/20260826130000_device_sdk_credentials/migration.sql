@@ -1,0 +1,3 @@
+ALTER TABLE "Device" ADD COLUMN "sdk_port" INTEGER NOT NULL DEFAULT 8000;
+ALTER TABLE "Device" ADD COLUMN "sdk_username" TEXT;
+ALTER TABLE "Device" ADD COLUMN "sdk_password" TEXT;

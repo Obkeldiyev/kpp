@@ -1,5 +1,6 @@
 import { Router } from "express";
 import accessControlRouter from "./access-control.routes";
+import authRouter from "./auth.routes";
 import attendanceRouter from "./attendance.routes";
 import dashboardRouter from "./dashboard.routes";
 import deviceRouter from "./device.routes";
@@ -13,6 +14,7 @@ import trackingRouter from "./tracking.routes";
 
 const router = Router();
 
+router.use(authRouter);
 router.use(dashboardRouter);
 router.use(metadataRouter);
 router.use(organizationRouter);

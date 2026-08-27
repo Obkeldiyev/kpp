@@ -1,3 +1,4 @@
+export * from "./auth.controller";
 export * from "./access-control.controller";
 export * from "./attendance.controller";
 export * from "./dashboard.controller";

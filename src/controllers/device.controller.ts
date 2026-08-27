@@ -22,6 +22,7 @@ import {
 } from "@prisma/client";
 import { Request, Response } from "express";
 import { prisma } from "@config";
+import { connectBridgeDevice } from "../services/bridge.service";
 import { combineDateAndTime, endOfDay, minutesBetween, paginate, startOfDay, toDate } from "@utils";
 import {
     asBoolean,
@@ -35,7 +36,24 @@ import {
     updateAttendanceFromEvent,
     weekDayName,
 } from "./shared";
+
+function publicDevice<T extends { sdk_password?: string | null }>(device: T) {
+    const { sdk_password: _sdkPassword, ...safeDevice } = device;
+    return safeDevice;
+}
+
 export class DeviceController {
+    static async connectDevice(req: Request, res: Response) {
+        const device = await prisma.device.findUnique({ where: { id: req.params.id } });
+        if (!device?.ip_address || !device.sdk_username || !device.sdk_password) {
+            res.status(400).json({ success: false, message: "Device IP, SDK username, and SDK password are required" });
+            return;
+        }
+        const bridge = await connectBridgeDevice(device);
+        const updated = await prisma.device.update({ where: { id: device.id }, data: { network_status: bridge.ok ? "ONLINE" : "OFFLINE" } });
+        res.json({ success: Boolean(bridge.ok), data: publicDevice(updated), bridge });
+    }
+
     static async upsertDevice(req: Request, res: Response) {
         const deviceId = req.body.hikcentral_device_id || req.body.id;
         const data = {
@@ -51,6 +69,9 @@ export class DeviceController {
             marking_status: asString(req.body.marking_status) || "unmarked",
             serial_number: asString(req.body.serial_number),
             ip_address: asString(req.body.ip_address),
+            sdk_port: req.body.sdk_port === undefined ? 8000 : asNumber(req.body.sdk_port),
+            sdk_username: asString(req.body.sdk_username),
+            sdk_password: asString(req.body.sdk_password),
             location: asString(req.body.location),
             is_active: req.body.is_active === undefined ? true : asBoolean(req.body.is_active, true),
             area_id: asString(req.body.area_id),
@@ -65,7 +86,20 @@ export class DeviceController {
               })
             : await prisma.device.create({ data });
 
-        res.status(201).json({ success: true, data: device });
+        let connected = false;
+        let bridge: unknown = null;
+        if (device.ip_address && device.sdk_username && device.sdk_password) {
+            try {
+                bridge = await connectBridgeDevice(device);
+                connected = Boolean((bridge as { ok?: boolean })?.ok);
+                if (connected && device.network_status !== "ONLINE") {
+                    await prisma.device.update({ where: { id: device.id }, data: { network_status: "ONLINE" } });
+                }
+            } catch (error: any) {
+                bridge = { ok: false, error: error?.response?.data?.detail || error.message };
+            }
+        }
+            res.status(201).json({ success: true, data: publicDevice({ ...device, network_status: connected ? "ONLINE" : device.network_status }), bridge });
     }
 
     static async listDevices(req: Request, res: Response) {
@@ -81,7 +115,7 @@ export class DeviceController {
             orderBy: { name: "asc" },
         });
 
-        res.json({ success: true, data: devices });
+            res.json({ success: true, data: devices.map(publicDevice) });
     }
 
     static async getDevice(req: Request, res: Response) {
@@ -112,6 +146,9 @@ export class DeviceController {
                 marking_status: asString(req.body.marking_status),
                 serial_number: asString(req.body.serial_number),
                 ip_address: asString(req.body.ip_address),
+                sdk_port: req.body.sdk_port === undefined ? undefined : asNumber(req.body.sdk_port),
+                sdk_username: asString(req.body.sdk_username),
+                sdk_password: asString(req.body.sdk_password),
                 location: asString(req.body.location),
                 is_active: req.body.is_active === undefined ? undefined : asBoolean(req.body.is_active, true),
                 area_id: asString(req.body.area_id),
